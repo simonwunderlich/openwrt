@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Fri, 16 Oct 2026 15:30:56 +0200
+Subject: [PATCH 969/979] net: phy: phy_link_topology: Add a helper for
+ opportunistic alloc
+
+The phy_link_topology structure stores information about the PHY-related
+components connected to a net_device. It is opportunistically allocated,
+when we add the first item to the topology, as this is not relevant for
+all kinds of net_devices.
+
+In preparation for the addition of phy_port tracking in the topology,
+let's make a dedicated helper for that allocation sequence.
+
+Reviewed-by: Andrew Lunn <andrew@lunn.ch>
+Tested-by: Aleksei Sviridkin <f@lex.la>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Tested-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Link: https://patch.msgid.link/20261016133107.54054-2-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ drivers/net/phy/phy_link_topology.c | 40 +++++++++++++++++++++++------
+ 1 file changed, 32 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/phy/phy_link_topology.c b/drivers/net/phy/phy_link_topology.c
+index 0e9e987f37dd..a83d3d138dec 100644
+--- a/drivers/net/phy/phy_link_topology.c
++++ b/drivers/net/phy/phy_link_topology.c
+@@ -27,21 +27,45 @@ static int netdev_alloc_phy_link_topology(struct net_device *dev)
+ 	return 0;
+ }
+ 
++static struct phy_link_topology *phy_link_topo_get_or_alloc(struct net_device *dev)
++{
++	int ret;
++
++	if (dev->link_topo)
++		return dev->link_topo;
++
++	/* The topology is allocated the first time we add an object to it.
++	 * It is freed alongside the netdev. It can be called on multiple
++	 * contexts:
++	 *  - It can be called from .probe() : No rtnl, no netdev_lock
++	 *  - .ndo_open() : rtnl and possibly netdev_lock
++	 *  - SFP state machine : rtnl held or not
++	 *
++	 *  However, we can't really have races :
++	 *  - If we have a PHY, phy_link_topo_add_phy() will always run first
++	 *    and trigger the alloc. Only then the ports can be added through
++	 *    phylib or sfp.
++	 *  - If we don't, the SFP port for the cage is registered first, and
++	 *    only then other ports/PHYs can be registered.
++	 */
++	ret = netdev_alloc_phy_link_topology(dev);
++	if (ret)
++		return ERR_PTR(ret);
++
++	return dev->link_topo;
++}
++
+ int phy_link_topo_add_phy(struct net_device *dev,
+ 			  struct phy_device *phy,
+ 			  enum phy_upstream upt, void *upstream)
+ {
+-	struct phy_link_topology *topo = dev->link_topo;
++	struct phy_link_topology *topo;
+ 	struct phy_device_node *pdn;
+ 	int ret;
+ 
+-	if (!topo) {
+-		ret = netdev_alloc_phy_link_topology(dev);
+-		if (ret)
+-			return ret;
+-
+-		topo = dev->link_topo;
+-	}
++	topo = phy_link_topo_get_or_alloc(dev);
++	if (IS_ERR(topo))
++		return PTR_ERR(topo);
+ 
+ 	pdn = kzalloc(sizeof(*pdn), GFP_KERNEL);
+ 	if (!pdn)

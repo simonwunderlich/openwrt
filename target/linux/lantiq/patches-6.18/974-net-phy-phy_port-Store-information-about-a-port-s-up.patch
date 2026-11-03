@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Fri, 16 Oct 2026 15:31:01 +0200
+Subject: [PATCH 974/979] net: phy: phy_port: Store information about a port's
+ upstream
+
+MII phy_ports are not meant to be connected directly to a link partner.
+They are meant to feed into some media converter devices that will
+expose an MDI phy_port, so far we only support SFP modules for that.
+
+In the case an MDI phy_port is backed by an MII port (e.g. a SFP
+module's port, backed by the SFP cage port), let's keep track of the
+port id of the MII port backing it.
+
+Reviewed-by: Andrew Lunn <andrew@lunn.ch>
+Tested-by: Aleksei Sviridkin <f@lex.la>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Tested-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Link: https://patch.msgid.link/20261016133107.54054-7-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ drivers/net/phy/phy_device.c | 24 ++++++++++++++++++++++++
+ drivers/net/phy/phylink.c    |  5 +++++
+ include/linux/phy.h          |  4 ++++
+ include/linux/phy_port.h     |  3 +++
+ 4 files changed, 36 insertions(+)
+
+diff --git a/drivers/net/phy/phy_device.c b/drivers/net/phy/phy_device.c
+index 2e093dd0c7ee..44121c8a0f92 100644
+--- a/drivers/net/phy/phy_device.c
++++ b/drivers/net/phy/phy_device.c
+@@ -1653,6 +1653,7 @@ static int phy_sfp_connect_phy(void *upstream, struct phy_device *phy)
+ 	int ret;
+ 
+ 	phydev->has_sfp_mod_phy = true;
++	phy_set_upstream_port(phy, phydev->sfp_cage_port);
+ 
+ 	/* If we aren't attached to a netdev, we can't add the SFP PHY to its
+ 	 * topology.
+@@ -1686,6 +1687,8 @@ static void phy_sfp_disconnect_phy(void *upstream, struct phy_device *phy)
+ 
+ 	if (dev)
+ 		phy_link_topo_del_phy(dev, phy);
++
++	phy_set_upstream_port(phy, NULL);
+ }
+ 
+ /**
+@@ -1824,6 +1827,8 @@ static int phy_add_sfp_mod_port(struct phy_device *phydev)
+ 	 */
+ 	phydev->mod_port = port;
+ 
++	port->upstream_port = phydev->sfp_cage_port;
++
+ 	return 0;
+ }
+ 
+@@ -3915,6 +3920,25 @@ struct phy_port *phy_get_sfp_port(struct phy_device *phydev)
+ }
+ EXPORT_SYMBOL_GPL(phy_get_sfp_port);
+ 
++/**
++ * phy_set_upstream_port() - Sets the phy_port controlling the MII this PHY is
++ *			     attached to.
++ * @phydev: pointer to the PHY device we set the upstream of.
++ * @port: The phy_port upstream of this PHY, can be NULL.
++ */
++void phy_set_upstream_port(struct phy_device *phydev, struct phy_port *port)
++{
++	struct phy_port *local_port;
++
++	ASSERT_RTNL();
++
++	phydev->upstream_port = port;
++
++	phy_for_each_port(phydev, local_port)
++		local_port->upstream_port = port;
++}
++EXPORT_SYMBOL_GPL(phy_set_upstream_port);
++
+ /**
+  * fwnode_mdio_find_device - Given a fwnode, find the mdio_device
+  * @fwnode: pointer to the mdio_device's fwnode
+diff --git a/drivers/net/phy/phylink.c b/drivers/net/phy/phylink.c
+index 7786838f4934..1bde3635d25d 100644
+--- a/drivers/net/phy/phylink.c
++++ b/drivers/net/phy/phylink.c
+@@ -4261,6 +4261,8 @@ static int phylink_add_sfp_mod_port(struct phylink *pl)
+ 		}
+ 	}
+ 
++	port->upstream_port = pl->sfp_cage_port;
++
+ 	pl->mod_port = port;
+ 
+ 	return 0;
+@@ -4364,6 +4366,8 @@ static int phylink_sfp_connect_phy(void *upstream, struct phy_device *phy)
+ 	phy_interface_and(phy->host_interfaces, phylink_sfp_interfaces,
+ 			  pl->supported_interfaces);
+ 
++	phy_set_upstream_port(phy, pl->sfp_cage_port);
++
+ 	/* Do the initial configuration */
+ 	return phylink_sfp_config_phy(pl, phy);
+ }
+@@ -4372,6 +4376,7 @@ static void phylink_sfp_disconnect_phy(void *upstream,
+ 				       struct phy_device *phydev)
+ {
+ 	phylink_disconnect_phy(upstream);
++	phy_set_upstream_port(phydev, NULL);
+ }
+ 
+ static const struct sfp_upstream_ops sfp_phylink_ops = {
+diff --git a/include/linux/phy.h b/include/linux/phy.h
+index 2075ea7163a1..c9b3bd607676 100644
+--- a/include/linux/phy.h
++++ b/include/linux/phy.h
+@@ -592,6 +592,7 @@ struct macsec_ops;
+  * @sfp_bus: SFP bus attached to this PHY's fiber port
+  * @sfp_cage_port: The phy_port connected to the downstream SFP cage
+  * @mod_port: phy_port representing the SFP module, if it is phy-less
++ * @upstream_port: phy_port this PHY's MII attaches to, if any
+  * @attached_dev: The attached enet driver's device instance ptr
+  * @adjust_link: Callback for the enet controller to respond to changes: in the
+  *               link state.
+@@ -782,6 +783,7 @@ struct phy_device {
+ 	struct sfp_bus *sfp_bus;
+ 	struct phy_port *sfp_cage_port;
+ 	struct phy_port *mod_port;
++	struct phy_port *upstream_port;
+ 	struct phylink *phylink;
+ 	struct net_device *attached_dev;
+ 	struct mii_timestamper *mii_ts;
+@@ -2220,6 +2222,8 @@ int __phy_hwtstamp_set(struct phy_device *phydev,
+ 
+ struct phy_port *phy_get_sfp_port(struct phy_device *phydev);
+ 
++void phy_set_upstream_port(struct phy_device *phydev, struct phy_port *port);
++
+ extern const struct bus_type mdio_bus_type;
+ extern const struct class mdio_bus_class;
+ 
+diff --git a/include/linux/phy_port.h b/include/linux/phy_port.h
+index 4e2a3fdd2f2e..8f45c031cbc1 100644
+--- a/include/linux/phy_port.h
++++ b/include/linux/phy_port.h
+@@ -40,6 +40,8 @@ struct phy_port_ops {
+  * @head: Used by the port's parent to list ports
+  * @parent_type: The type of device this port is directly connected to
+  * @phy: If the parent is PHY_PORT_PHYDEV, the PHY controlling that port
++ * @upstream_port: Indicates the MII port that feeds this port, if any,
++ *		   e.g. the SFP cage port for a SFP module port.
+  * @ops: Callback ops implemented by the port controller
+  * @pairs: The number of  pairs this port has, 0 if not applicable
+  * @mediums: Bitmask of the physical mediums this port provides access to
+@@ -59,6 +61,7 @@ struct phy_port {
+ 	union {
+ 		struct phy_device *phy;
+ 	};
++	struct phy_port *upstream_port;
+ 
+ 	const struct phy_port_ops *ops;
+ 

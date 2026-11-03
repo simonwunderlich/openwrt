@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Thu, 4 Jun 2026 11:28:16 +0200
+Subject: [PATCH 966/979] net: phy: remove phy ports upon probe failure
+
+When phy_probe fails, let's clean the phy_ports that were successfully
+added already.
+
+Suggested-by: Nicolai Buchwitz <nb@tipi-net.de>
+Reviewed-by: Nicolai Buchwitz <nb@tipi-net.de>
+Fixes: 589e934d2735 ("net: phy: Introduce PHY ports representation")
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Link: https://patch.msgid.link/20260604092819.723505-3-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ drivers/net/phy/phy_device.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/net/phy/phy_device.c b/drivers/net/phy/phy_device.c
+index d53c65e09985..c87617e8119c 100644
+--- a/drivers/net/phy/phy_device.c
++++ b/drivers/net/phy/phy_device.c
+@@ -3990,6 +3990,8 @@ static int phy_probe(struct device *dev)
+ 	sfp_bus_del_upstream(phydev->sfp_bus);
+ 	phydev->sfp_bus = NULL;
+ 
++	phy_cleanup_ports(phydev);
++
+ 	if (!phydev->is_on_sfp_module)
+ 		phy_led_triggers_unregister(phydev);
+ 

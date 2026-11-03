@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Thu, 5 Feb 2026 10:23:06 +0100
+Subject: [PATCH 965/979] net: phy: phy_port: Correctly recompute the port's
+ linkmodes
+
+a PHY-driven phy_port contains a 'supported' field containing the
+linkmodes available on this port. This is populated based on :
+ - The PHY's reported features
+ - The DT representation of the connector
+ - The PHY's attach_mdi() callback
+
+As these different attrbution methods work in conjunction, the helper
+phy_port_update_supported() recomputes the final 'supported' value based
+on the populated mediums, linkmodes and pairs.
+
+However this recompute wasn't correctly implemented, and added more
+modes than necessary by or'ing the medium-specific modes to the existing
+support. Let's fix this and properly filter the modes.
+
+Fixes: 589e934d2735 ("net: phy: Introduce PHY ports representation")
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Link: https://patch.msgid.link/20260205092317.755906-4-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ drivers/net/phy/phy_port.c | 24 +++++++++++++++++-------
+ 1 file changed, 17 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/phy/phy_port.c b/drivers/net/phy/phy_port.c
+index a269e9ea12c4..63d1bb154dc7 100644
+--- a/drivers/net/phy/phy_port.c
++++ b/drivers/net/phy/phy_port.c
+@@ -108,16 +108,10 @@ EXPORT_SYMBOL_GPL(phy_of_parse_port);
+  */
+ void phy_port_update_supported(struct phy_port *port)
+ {
+-	__ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = { 0 };
++	__ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = {0};
+ 	unsigned long mode;
+ 	int i;
+ 
+-	for_each_set_bit(i, &port->mediums, __ETHTOOL_LINK_MEDIUM_LAST) {
+-		linkmode_zero(supported);
+-		phy_caps_medium_get_supported(supported, i, port->pairs);
+-		linkmode_or(port->supported, port->supported, supported);
+-	}
+-
+ 	/* If there's no pairs specified, we grab the default number of
+ 	 * pairs as the max of the default pairs for each linkmode
+ 	 */
+@@ -127,6 +121,22 @@ void phy_port_update_supported(struct phy_port *port)
+ 			port->pairs = max_t(int, port->pairs,
+ 					    ethtool_linkmode_n_pairs(mode));
+ 
++	for_each_set_bit(i, &port->mediums, __ETHTOOL_LINK_MEDIUM_LAST) {
++		__ETHTOOL_DECLARE_LINK_MODE_MASK(med_supported) = {0};
++
++		phy_caps_medium_get_supported(med_supported, i, port->pairs);
++		linkmode_or(supported, supported, med_supported);
++	}
++
++	/* If port->supported is already populated, filter it out with the
++	 * medium/pair support. Otherwise, let's just use this medium-based
++	 * support as the port's supported list.
++	 */
++	if (linkmode_empty(port->supported))
++		linkmode_copy(port->supported, supported);
++	else
++		linkmode_and(port->supported, supported, port->supported);
++
+ 	/* Serdes ports supported through SFP may not have any medium set,
+ 	 * as they will output PHY_INTERFACE_MODE_XXX modes. In that case, derive
+ 	 * the supported list based on these interfaces

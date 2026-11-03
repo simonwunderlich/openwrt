@@ -1,0 +1,407 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Fri, 16 Oct 2026 15:31:03 +0200
+Subject: [PATCH 976/979] netlink: specs: Add ethernet port listing with
+ ethtool
+
+Ethernet network interfaces may have more than one front-facing port.
+The phy_port infrastructure was introduced to keep track of
+these ports, and allow userspace to know about the presence and
+capability of these ports. Add a ethnl netlink message to report this
+information.
+
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Link: https://patch.msgid.link/20261016133107.54054-9-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ Documentation/netlink/specs/ethtool.yaml      | 141 ++++++++++++++++++
+ Documentation/networking/ethtool-netlink.rst  | 100 +++++++++++++
+ .../uapi/linux/ethtool_netlink_generated.h    |  57 +++++++
+ 3 files changed, 298 insertions(+)
+
+diff --git a/Documentation/netlink/specs/ethtool.yaml b/Documentation/netlink/specs/ethtool.yaml
+index 6a0fb1974513..472401d6c49f 100644
+--- a/Documentation/netlink/specs/ethtool.yaml
++++ b/Documentation/netlink/specs/ethtool.yaml
+@@ -210,6 +210,11 @@ definitions:
+       -
+         name: discard
+         value: 31
++  -
++    name: port-type
++    doc: type of physical connector
++    type: enum
++    entries: [mdi, sfp]
+ 
+ attribute-sets:
+   -
+@@ -1823,6 +1828,99 @@ attribute-sets:
+         type: uint
+         enum: pse-event
+         doc: List of events reported by the PSE controller
++  -
++    name: mse-capabilities
++    doc: MSE capabilities attribute set
++    attr-cnt-name: --ethtool-a-mse-capabilities-cnt
++    attributes:
++      -
++        name: max-average-mse
++        type: uint
++      -
++        name: max-peak-mse
++        type: uint
++      -
++        name: refresh-rate-ps
++        type: uint
++      -
++        name: num-symbols
++        type: uint
++  -
++    name: mse-snapshot
++    doc: MSE snapshot attribute set
++    attr-cnt-name: --ethtool-a-mse-snapshot-cnt
++    attributes:
++      -
++        name: average-mse
++        type: uint
++      -
++        name: peak-mse
++        type: uint
++      -
++        name: worst-peak-mse
++        type: uint
++  -
++    name: mse
++    attr-cnt-name: --ethtool-a-mse-cnt
++    attributes:
++      -
++        name: header
++        type: nest
++        nested-attributes: header
++      -
++        name: capabilities
++        type: nest
++        nested-attributes: mse-capabilities
++      -
++        name: channel-a
++        type: nest
++        nested-attributes: mse-snapshot
++      -
++        name: channel-b
++        type: nest
++        nested-attributes: mse-snapshot
++      -
++        name: channel-c
++        type: nest
++        nested-attributes: mse-snapshot
++      -
++        name: channel-d
++        type: nest
++        nested-attributes: mse-snapshot
++      -
++        name: worst-channel
++        type: nest
++        nested-attributes: mse-snapshot
++      -
++        name: link
++        type: nest
++        nested-attributes: mse-snapshot
++  -
++    name: port
++    attr-cnt-name: --ethtool-a-port-cnt
++    attributes:
++      -
++        name: header
++        type: nest
++        nested-attributes: header
++      -
++        name: id
++        type: u32
++      -
++        name: supported-modes
++        type: nest
++        nested-attributes: bitset
++      -
++        name: supported-interfaces
++        type: nest
++        nested-attributes: bitset
++      -
++        name: type
++        type: u32
++        enum: port-type
++      -
++        name: upstream-port
++        type: u32
+ 
+ operations:
+   enum-model: directional
+@@ -2756,6 +2854,49 @@ operations:
+         attributes:
+           - header
+           - context
++    -
++      name: mse-get
++      doc: Get PHY MSE measurement data and capabilities.
++      attribute-set: mse
++      do: &mse-get-op
++        request:
++          attributes:
++            - header
++        reply:
++          attributes:
++            - header
++            - capabilities
++            - channel-a
++            - channel-b
++            - channel-c
++            - channel-d
++            - worst-channel
++            - link
++      dump: *mse-get-op
++    -
++      name: port-get
++      doc: Get ports attached to an interface
++
++      attribute-set: port
++
++      do:
++        request:
++          attributes:
++            - header
++            - id
++        reply: &port-get-op-reply
++          attributes:
++            - header
++            - id
++            - supported-modes
++            - supported-interfaces
++            - type
++            - upstream-port
++      dump:
++        request:
++          attributes:
++            - header
++        reply: *port-get-op-reply
+ 
+ mcast-groups:
+   list:
+diff --git a/Documentation/networking/ethtool-netlink.rst b/Documentation/networking/ethtool-netlink.rst
+index b270886c5f5d..736629cb8345 100644
+--- a/Documentation/networking/ethtool-netlink.rst
++++ b/Documentation/networking/ethtool-netlink.rst
+@@ -242,6 +242,8 @@ Userspace to kernel:
+   ``ETHTOOL_MSG_RSS_SET``               set RSS settings
+   ``ETHTOOL_MSG_RSS_CREATE_ACT``        create an additional RSS context
+   ``ETHTOOL_MSG_RSS_DELETE_ACT``        delete an additional RSS context
++  ``ETHTOOL_MSG_MSE_GET``               get MSE diagnostic data
++  ``ETHTOOL_MSG_PORT_GET``              get port information
+   ===================================== =================================
+ 
+ Kernel to userspace:
+@@ -299,6 +301,8 @@ Kernel to userspace:
+   ``ETHTOOL_MSG_RSS_CREATE_ACT_REPLY``     create an additional RSS context
+   ``ETHTOOL_MSG_RSS_CREATE_NTF``           additional RSS context created
+   ``ETHTOOL_MSG_RSS_DELETE_NTF``           additional RSS context deleted
++  ``ETHTOOL_MSG_MSE_GET_REPLY``            MSE diagnostic data
++  ``ETHTOOL_MSG_PORT_GET_REPLY``           port information
+   ======================================== =================================
+ 
+ ``GET`` requests are sent by userspace applications to retrieve device
+@@ -2458,6 +2462,101 @@ Kernel response contents:
+ 
+ For a description of each attribute, see ``TSCONFIG_GET``.
+ 
++MSE_GET
++=======
++
++Retrieves detailed Mean Square Error (MSE) diagnostic information from the PHY.
++
++Request Contents:
++
++  ====================================  ======  ============================
++  ``ETHTOOL_A_MSE_HEADER``              nested  request header
++  ====================================  ======  ============================
++
++Kernel Response Contents:
++
++  ====================================  ======  ================================
++  ``ETHTOOL_A_MSE_HEADER``              nested  reply header
++  ``ETHTOOL_A_MSE_CAPABILITIES``        nested  capability/scale info for MSE
++                                                measurements
++  ``ETHTOOL_A_MSE_CHANNEL_A``           nested  snapshot for Channel A
++  ``ETHTOOL_A_MSE_CHANNEL_B``           nested  snapshot for Channel B
++  ``ETHTOOL_A_MSE_CHANNEL_C``           nested  snapshot for Channel C
++  ``ETHTOOL_A_MSE_CHANNEL_D``           nested  snapshot for Channel D
++  ``ETHTOOL_A_MSE_WORST_CHANNEL``       nested  snapshot for worst channel
++  ``ETHTOOL_A_MSE_LINK``                nested  snapshot for link-wide aggregate
++  ====================================  ======  ================================
++
++MSE Capabilities
++----------------
++
++This nested attribute reports the capability / scaling properties used to
++interpret snapshot values.
++
++  ============================================== ======  =========================
++  ``ETHTOOL_A_MSE_CAPABILITIES_MAX_AVERAGE_MSE`` uint    max avg_mse scale
++  ``ETHTOOL_A_MSE_CAPABILITIES_MAX_PEAK_MSE``    uint    max peak_mse scale
++  ``ETHTOOL_A_MSE_CAPABILITIES_REFRESH_RATE_PS`` uint    sample rate (picoseconds)
++  ``ETHTOOL_A_MSE_CAPABILITIES_NUM_SYMBOLS``     uint    symbols per HW sample
++  ============================================== ======  =========================
++
++The max-average/peak fields are included only if the corresponding metric
++is supported by the PHY. Their absence indicates that the metric is not
++available.
++
++See ``struct phy_mse_capability`` kernel documentation in
++``include/linux/phy.h``.
++
++MSE Snapshot
++------------
++
++Each per-channel nest contains an atomic snapshot of MSE values for that
++selector (channel A/B/C/D, worst channel, or link).
++
++  ==========================================  ======  ===================
++  ``ETHTOOL_A_MSE_SNAPSHOT_AVERAGE_MSE``      uint    average MSE value
++  ``ETHTOOL_A_MSE_SNAPSHOT_PEAK_MSE``         uint    current peak MSE
++  ``ETHTOOL_A_MSE_SNAPSHOT_WORST_PEAK_MSE``   uint    worst-case peak MSE
++  ==========================================  ======  ===================
++
++Within each channel nest, only the metrics supported by the PHY will be present.
++
++See ``struct phy_mse_snapshot`` kernel documentation in
++``include/linux/phy.h``.
++
++PORT_GET
++========
++
++Retrieve information about the physical connection points of a network device,
++referred to as "ports". User needs to specify a PORT_ID for the DO operation,
++in which case the DO request returns information about that specific port.
++
++As there can be more than one port, the DUMP operation can be used to list the
++ports present on a given interface, by passing an interface index or name in
++the dump request.
++
++Request contents:
++
++  ===================================== ======  ===============================
++  ``ETHTOOL_A_PORT_HEADER``             nested  request header
++  ``ETHTOOL_A_PORT_ID``                 u32     port id
++  ===================================== ======  ===============================
++
++Kernel response contents:
++
++  ======================================= ======  =============================
++  ``ETHTOOL_A_PORT_HEADER``               nested  request header
++  ``ETHTOOL_A_PORT_ID``                   u32     the port's unique identifier,
++                                                  per netdevice.
++  ``ETHTOOL_A_PORT_SUPPORTED_MODES``      bitset  bitset of supported linkmodes
++  ``ETHTOOL_A_PORT_SUPPORTED_INTERFACES`` bitset  bitset of supported MII
++                                                  interfaces
++  ``ETHTOOL_A_PORT_TYPE``                 u32     the port type
++  ``ETHTOOL_A_PORT_UPSTREAM_PORT``        u32     If any, the index of the MII
++                                                  port that feeds into this
++                                                  port.
++  ======================================= ======  =============================
++
+ Request translation
+ ===================
+ 
+@@ -2568,4 +2667,5 @@ are netlink only.
+   n/a                                 ``ETHTOOL_MSG_PHY_GET``
+   ``SIOCGHWTSTAMP``                   ``ETHTOOL_MSG_TSCONFIG_GET``
+   ``SIOCSHWTSTAMP``                   ``ETHTOOL_MSG_TSCONFIG_SET``
++  n/a                                 ``ETHTOOL_MSG_PORT_GET``
+   =================================== =====================================
+diff --git a/include/uapi/linux/ethtool_netlink_generated.h b/include/uapi/linux/ethtool_netlink_generated.h
+index 0e8ac0d974e2..94b7dd8b2470 100644
+--- a/include/uapi/linux/ethtool_netlink_generated.h
++++ b/include/uapi/linux/ethtool_netlink_generated.h
+@@ -77,6 +77,14 @@ enum ethtool_pse_event {
+ 	ETHTOOL_PSE_EVENT_SW_PW_CONTROL_ERROR = 64,
+ };
+ 
++/*
++ * type of physical connector
++ */
++enum ethtool_port_type {
++	ETHTOOL_PORT_TYPE_MDI,
++	ETHTOOL_PORT_TYPE_SFP,
++};
++
+ enum {
+ 	ETHTOOL_A_HEADER_UNSPEC,
+ 	ETHTOOL_A_HEADER_DEV_INDEX,
+@@ -803,6 +811,51 @@ enum {
+ 	ETHTOOL_A_PSE_NTF_MAX = (__ETHTOOL_A_PSE_NTF_CNT - 1)
+ };
+ 
++enum {
++	ETHTOOL_A_MSE_CAPABILITIES_MAX_AVERAGE_MSE = 1,
++	ETHTOOL_A_MSE_CAPABILITIES_MAX_PEAK_MSE,
++	ETHTOOL_A_MSE_CAPABILITIES_REFRESH_RATE_PS,
++	ETHTOOL_A_MSE_CAPABILITIES_NUM_SYMBOLS,
++
++	__ETHTOOL_A_MSE_CAPABILITIES_CNT,
++	ETHTOOL_A_MSE_CAPABILITIES_MAX = (__ETHTOOL_A_MSE_CAPABILITIES_CNT - 1)
++};
++
++enum {
++	ETHTOOL_A_MSE_SNAPSHOT_AVERAGE_MSE = 1,
++	ETHTOOL_A_MSE_SNAPSHOT_PEAK_MSE,
++	ETHTOOL_A_MSE_SNAPSHOT_WORST_PEAK_MSE,
++
++	__ETHTOOL_A_MSE_SNAPSHOT_CNT,
++	ETHTOOL_A_MSE_SNAPSHOT_MAX = (__ETHTOOL_A_MSE_SNAPSHOT_CNT - 1)
++};
++
++enum {
++	ETHTOOL_A_MSE_HEADER = 1,
++	ETHTOOL_A_MSE_CAPABILITIES,
++	ETHTOOL_A_MSE_CHANNEL_A,
++	ETHTOOL_A_MSE_CHANNEL_B,
++	ETHTOOL_A_MSE_CHANNEL_C,
++	ETHTOOL_A_MSE_CHANNEL_D,
++	ETHTOOL_A_MSE_WORST_CHANNEL,
++	ETHTOOL_A_MSE_LINK,
++
++	__ETHTOOL_A_MSE_CNT,
++	ETHTOOL_A_MSE_MAX = (__ETHTOOL_A_MSE_CNT - 1)
++};
++
++enum {
++	ETHTOOL_A_PORT_HEADER = 1,
++	ETHTOOL_A_PORT_ID,
++	ETHTOOL_A_PORT_SUPPORTED_MODES,
++	ETHTOOL_A_PORT_SUPPORTED_INTERFACES,
++	ETHTOOL_A_PORT_TYPE,
++	ETHTOOL_A_PORT_UPSTREAM_PORT,
++
++	__ETHTOOL_A_PORT_CNT,
++	ETHTOOL_A_PORT_MAX = (__ETHTOOL_A_PORT_CNT - 1)
++};
++
+ enum {
+ 	ETHTOOL_MSG_USER_NONE = 0,
+ 	ETHTOOL_MSG_STRSET_GET = 1,
+@@ -855,6 +908,8 @@ enum {
+ 	ETHTOOL_MSG_RSS_SET,
+ 	ETHTOOL_MSG_RSS_CREATE_ACT,
+ 	ETHTOOL_MSG_RSS_DELETE_ACT,
++	ETHTOOL_MSG_MSE_GET,
++	ETHTOOL_MSG_PORT_GET,
+ 
+ 	__ETHTOOL_MSG_USER_CNT,
+ 	ETHTOOL_MSG_USER_MAX = (__ETHTOOL_MSG_USER_CNT - 1)
+@@ -915,6 +970,8 @@ enum {
+ 	ETHTOOL_MSG_RSS_CREATE_ACT_REPLY,
+ 	ETHTOOL_MSG_RSS_CREATE_NTF,
+ 	ETHTOOL_MSG_RSS_DELETE_NTF,
++	ETHTOOL_MSG_MSE_GET_REPLY,
++	ETHTOOL_MSG_PORT_GET_REPLY,
+ 
+ 	__ETHTOOL_MSG_KERNEL_CNT,
+ 	ETHTOOL_MSG_KERNEL_MAX = (__ETHTOOL_MSG_KERNEL_CNT - 1)

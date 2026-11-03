@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Thu, 5 Feb 2026 10:23:05 +0100
+Subject: [PATCH 964/979] net: phy: phy_port: Cleanup the of-parsing logic for
+ phy_port
+
+We don't need to maintain a mediums bitfield, let's drop it and drop a
+bogus check for empty mediums, as we already check it above.
+
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Link: https://patch.msgid.link/20260205092317.755906-3-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ drivers/net/phy/phy_port.c | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/phy/phy_port.c b/drivers/net/phy/phy_port.c
+index ec93c8ca051e..a269e9ea12c4 100644
+--- a/drivers/net/phy/phy_port.c
++++ b/drivers/net/phy/phy_port.c
+@@ -53,7 +53,7 @@ struct phy_port *phy_of_parse_port(struct device_node *dn)
+ 	enum ethtool_link_medium medium;
+ 	struct phy_port *port;
+ 	const char *med_str;
+-	u32 pairs = 0, mediums = 0;
++	u32 pairs = 0;
+ 	int ret;
+ 
+ 	ret = fwnode_property_read_string(fwnode, "media", &med_str);
+@@ -85,17 +85,12 @@ struct phy_port *phy_of_parse_port(struct device_node *dn)
+ 		return ERR_PTR(-EINVAL);
+ 	}
+ 
+-	mediums |= BIT(medium);
+-
+-	if (!mediums)
+-		return ERR_PTR(-EINVAL);
+-
+ 	port = phy_port_alloc();
+ 	if (!port)
+ 		return ERR_PTR(-ENOMEM);
+ 
+ 	port->pairs = pairs;
+-	port->mediums = mediums;
++	port->mediums = BIT(medium);
+ 
+ 	return port;
+ }

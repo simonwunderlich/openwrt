@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Date: Fri, 16 Oct 2026 15:31:02 +0200
+Subject: [PATCH 975/979] net: phy: phy_link_topology: Add a helper to retrieve
+ ports
+
+In order to allow netlink access to phy_ports, let's add a helper to
+retrieve them. When handling a port coming from phy_link_topology, the
+caller must hold rtnl until it's done with it.
+
+We don't really support PHY and phy_port operation on ops-locked devices
+yet, warn when we try to do so on such an interface.
+
+Reviewed-by: Andrew Lunn <andrew@lunn.ch>
+Tested-by: Aleksei Sviridkin <f@lex.la>
+Reviewed-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Tested-by: Christophe Leroy (CS GROUP) <chleroy@kernel.org>
+Signed-off-by: Maxime Chevallier <maxime.chevallier@bootlin.com>
+Link: https://patch.msgid.link/20261016133107.54054-8-maxime.chevallier@bootlin.com
+Signed-off-by: Jakub Kicinski <kuba@kernel.org>
+---
+ include/linux/phy_link_topology.h | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/include/linux/phy_link_topology.h b/include/linux/phy_link_topology.h
+index 66bceff72b19..77d607784efc 100644
+--- a/include/linux/phy_link_topology.h
++++ b/include/linux/phy_link_topology.h
+@@ -13,6 +13,7 @@
+ 
+ #include <linux/ethtool.h>
+ #include <linux/netdevice.h>
++#include <linux/rtnetlink.h>
+ 
+ struct xarray;
+ struct phy_device;
+@@ -66,6 +67,24 @@ phy_link_topo_get_phy(struct net_device *dev, u32 phyindex)
+ 	return NULL;
+ }
+ 
++static inline struct phy_port *
++phy_link_topo_get_port(struct net_device *dev, u32 port_id)
++{
++	struct phy_link_topology *topo = dev->link_topo;
++
++	if (!topo)
++		return NULL;
++
++	/* ports in the topo are RTNL protected, but may be accessed under
++	 * netdev_lock for ops-locked devices. For now keep them under rtnl
++	 * protection, as no ops-locked devices have phy_port capabilities
++	 * yet.
++	 */
++	ASSERT_RTNL();
++
++	return xa_load(&topo->ports, port_id);
++}
++
+ #else
+ static inline int phy_link_topo_add_phy(struct net_device *dev,
+ 					struct phy_device *phy,
+@@ -95,6 +114,12 @@ phy_link_topo_get_phy(struct net_device *dev, u32 phyindex)
+ {
+ 	return NULL;
+ }
++
++static inline struct phy_port *
++phy_link_topo_get_port(struct net_device *dev, u32 port_id)
++{
++	return NULL;
++}
+ #endif
+ 
+ #endif /* __PHY_LINK_TOPOLOGY_H */
