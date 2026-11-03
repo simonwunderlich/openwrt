@@ -68,11 +68,10 @@
 	 * The SFP cage and the ETH5 jack are both driven by the external PHY
 	 * on GSWIP port 5, which selects the medium itself, so only one of the
 	 * two can be used at a time. The cage is a fixed 1000BASE-X port and
-	 * needs an optical module. intel-xway has no SFP support, so the cage
-	 * is not attached to the PHY and only provides module detection and
-	 * EEPROM access. Only the i2c bus and the module-presence pin are
-	 * known: LOS was measured as not wired to a SoC GPIO, and
-	 * TX-fault/TX-disable could not be identified.
+	 * needs an optical module. The cage is attached to that PHY (phy2)
+	 * through the phy_port SFP support. Only the i2c bus and the
+	 * module-presence pin are known: LOS was measured as not wired to a
+	 * SoC GPIO, and TX-fault/TX-disable could not be identified.
 	 */
 	sfp: sfp {
 		compatible = "sff,sfp";
@@ -226,6 +225,7 @@
 		reg = <0x2>;
 		rx-internal-delay-ps = <2000>;
 		tx-internal-delay-ps = <2000>;
+		sfp = <&sfp>;
 
 		leds {
 			#address-cells = <1>;
