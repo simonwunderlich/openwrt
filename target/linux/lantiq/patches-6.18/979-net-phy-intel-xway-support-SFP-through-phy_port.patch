@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Mon, 2 Nov 2026 12:11:12 +0100
+Subject: [PATCH 979/979] net: phy: intel-xway: support SFP through phy_port
+
+---
+ drivers/net/phy/intel-xway.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/net/phy/intel-xway.c b/drivers/net/phy/intel-xway.c
+index afbcec711744..295d25fc021c 100644
+--- a/drivers/net/phy/intel-xway.c
++++ b/drivers/net/phy/intel-xway.c
+@@ -7,6 +7,7 @@
+ #include <linux/mdio.h>
+ #include <linux/module.h>
+ #include <linux/phy.h>
++#include <linux/phy_port.h>
+ #include <linux/of.h>
+ #include <linux/bitfield.h>
+ 
+@@ -323,6 +324,21 @@ static int xway_gphy_probe(struct phy_device *phydev)
+ 		return -ENOMEM;
+ 	phydev->priv = priv;
+ 
++	/* The PEF 7071/7072 can drive an SFP cage next to its copper port */
++	if (of_property_present(dev->of_node, "sfp"))
++		phydev->max_n_ports = 2;
++
++	return 0;
++}
++
++static int xway_gphy_attach_mii_port(struct phy_device *phydev,
++				     struct phy_port *port)
++{
++	/* The PHY selects the active medium on its own, the first one to get
++	 * link wins. The SFP side only supports 1000BASE-X.
++	 */
++	__set_bit(PHY_INTERFACE_MODE_1000BASEX, port->interfaces);
++
+ 	return 0;
+ }
+ 
+@@ -601,6 +617,7 @@ static struct phy_driver xway_gphy[] = {
+ 		.led_polarity_set = xway_gphy_led_polarity_set,
+ 		.update_stats	= xway_gphy_update_stats,
+ 		.get_phy_stats	= xway_gphy_get_phy_stats,
++		.attach_mii_port = xway_gphy_attach_mii_port,
+ 	}, {
+ 		.phy_id		= PHY_ID_PHY22F_1_3,
+ 		.phy_id_mask	= 0xffffffff,
+@@ -639,6 +656,7 @@ static struct phy_driver xway_gphy[] = {
+ 		.led_polarity_set = xway_gphy_led_polarity_set,
+ 		.update_stats	= xway_gphy_update_stats,
+ 		.get_phy_stats	= xway_gphy_get_phy_stats,
++		.attach_mii_port = xway_gphy_attach_mii_port,
+ 	}, {
+ 		.phy_id		= PHY_ID_PHY22F_1_4,
+ 		.phy_id_mask	= 0xffffffff,
+@@ -676,6 +694,7 @@ static struct phy_driver xway_gphy[] = {
+ 		.led_polarity_set = xway_gphy_led_polarity_set,
+ 		.update_stats	= xway_gphy_update_stats,
+ 		.get_phy_stats	= xway_gphy_get_phy_stats,
++		.attach_mii_port = xway_gphy_attach_mii_port,
+ 	}, {
+ 		.phy_id		= PHY_ID_PHY22F_1_5,
+ 		.phy_id_mask	= 0xffffffff,
